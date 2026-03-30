@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>P2P Мессенджер</title>
   <script type="module">
-    // Используем Torrent-стратегию — стабильнее Nostr
-    import { joinRoom } from 'https://esm.run/trystero/torrent';
+    // Основной импорт — самый стабильный способ через esm.run
+    import { joinRoom } from 'https://esm.run/trystero';
 
     // ==================== ДАННЫЕ ====================
     let myId = localStorage.getItem('myPeerId');
@@ -24,7 +24,7 @@
     let currentRoom = null;
     let onlinePeers = new Set();
 
-    const appId = 'p2p-messenger-torrent-2026';   // изменил appId для новой стратегии
+    const appId = 'p2p-messenger-cosmo-2026';
 
     let elements = {};
 
@@ -112,7 +112,7 @@
     function renderFriends() {
       elements.friendsList.innerHTML = '';
       if (friends.length === 0) {
-        elements.friendsList.innerHTML = `<p style="opacity:0.6; text-align:center; padding:30px;">Пока нет друзей.<br>Добавьте первого ниже ↓</p>`;
+        elements.friendsList.innerHTML = `<p style="opacity:0.6;text-align:center;padding:30px;">Пока нет друзей.<br>Добавьте первого ниже ↓</p>`;
         return;
       }
 
@@ -121,13 +121,13 @@
         const div = document.createElement('div');
         div.className = `friend-item ${currentChatId === friend.id ? 'active' : ''}`;
         div.innerHTML = `
-          <div style="display:flex; align-items:center; gap:10px; position:relative;">
+          <div style="display:flex;align-items:center;gap:10px;position:relative;">
             <div style="width:40px;height:40px;border-radius:50%;background:#333;overflow:hidden;flex-shrink:0;">
               ${friend.avatar ? `<img src="${friend.avatar}" style="width:100%;height:100%;object-fit:cover;">` : ''}
             </div>
-            <div style="flex:1; min-width:0;">
+            <div style="flex:1;min-width:0;">
               <strong>${friend.name}</strong>
-              <div style="font-size:0.82em;color:${isOnline?'#4ade80':'#888'};">${isOnline ? '● онлайн' : 'оффлайн'}</div>
+              <div style="font-size:0.82em;color:${isOnline ? '#4ade80' : '#888'};">${isOnline ? '● онлайн' : 'оффлайн'}</div>
               <small style="word-break:break-all;opacity:0.7;">${friend.id}</small>
             </div>
             <span onclick="deleteFriend('${friend.id}');event.stopImmediatePropagation();" 
@@ -155,7 +155,7 @@
     }
 
     window.deleteFriend = function(friendId) {
-      if (!confirm('Удалить этого друга?')) return;
+      if (!confirm('Удалить друга?')) return;
       friends = friends.filter(f => f.id !== friendId);
       localStorage.setItem('friends', JSON.stringify(friends));
 
@@ -183,8 +183,15 @@
       elements.messagesDiv.innerHTML = '';
       renderFriends();
 
+      // Создаём приватную комнату
       const roomId = 'chat_' + [myId, friendId].sort().join('_');
-      currentRoom = joinRoom({ appId }, roomId);
+
+      // Конфиг с предпочтением BitTorrent-трекеров (меньше ошибок релеев)
+      currentRoom = joinRoom({
+        appId,
+        // Можно добавить свои трекеры, если нужно
+        // relayUrls: [...] 
+      }, roomId);
 
       currentRoom.onPeerJoin(peerId => {
         if (peerId === friendId) {
@@ -205,7 +212,6 @@
         addMessage(data.text, false, data.time, data.avatar);
       });
 
-      // Загрузка истории
       if (chats[friendId]) {
         chats[friendId].forEach(m => addMessage(m.text, m.fromMe, m.time, m.avatar));
       }
@@ -285,7 +291,7 @@
 <body>
   <div class="container">
     <div class="sidebar">
-      <div class="header"><h2>🔗 P2P Мессенджер (Torrent)</h2></div>
+      <div class="header"><h2>🔗 P2P Мессенджер</h2></div>
 
       <div class="tabs">
         <button id="profileTabBtn" class="tab-btn">Профиль</button>
