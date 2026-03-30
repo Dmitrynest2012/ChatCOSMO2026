@@ -7,7 +7,7 @@
   <script type="module">
     import { joinRoom } from 'https://esm.run/trystero';
 
-    // ==================== ДАННЫЕ ====================
+    // ==================== ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ====================
     let myId = localStorage.getItem('myPeerId');
     if (!myId) {
       myId = 'user_' + crypto.randomUUID().slice(0, 12);
@@ -17,51 +17,81 @@
     let myName = localStorage.getItem('myName') || 'Я';
     let myAvatar = localStorage.getItem('myAvatar') || '';
     let friends = JSON.parse(localStorage.getItem('friends') || '[]');
-    let chats = JSON.parse(localStorage.getItem('chats') || '{}'); // { friendId: [{text, fromMe, time, avatar?}] }
+    let chats = JSON.parse(localStorage.getItem('chats') || '{}');
 
     let currentChatId = null;
     let currentRoom = null;
-    let onlinePeers = new Set(); // для статуса онлайн
+    let onlinePeers = new Set();
 
     const appId = 'p2p-messenger-v2-2026';
 
-    // ==================== DOM ====================
-    const elements = {
-      myId: document.getElementById('myId'),
-      myNameInput: document.getElementById('myName'),
-      myAvatarPreview: document.getElementById('myAvatarPreview'),
-      avatarInput: document.getElementById('avatarInput'),
-      friendsList: document.getElementById('friendsList'),
-      chatHeader: document.getElementById('chatHeader'),
-      messagesDiv: document.getElementById('messages'),
-      messageInput: document.getElementById('messageInput'),
-      sendBtn: document.getElementById('sendBtn'),
-      addFriendBtn: document.getElementById('addFriendBtn'),
-      newFriendId: document.getElementById('newFriendId'),
-      newFriendName: document.getElementById('newFriendName'),
-      profileTab: document.getElementById('profileTab'),
-      friendsTab: document.getElementById('friendsTab'),
-      chatTab: document.getElementById('chatTab'),
-      copyIdBtn: document.getElementById('copyIdBtn'),
-      clearChatBtn: document.getElementById('clearChatBtn')
-    };
+    // ==================== ЭЛЕМЕНТЫ DOM (заполняются после загрузки) ====================
+    let elements = {};
 
+    // ==================== ОСНОВНЫЕ ФУНКЦИИ ====================
     function init() {
+      // Заполняем элементы DOM ТОЛЬКО после загрузки страницы
+      elements = {
+        myId: document.getElementById('myId'),
+        myNameInput: document.getElementById('myName'),
+        myAvatarPreview: document.getElementById('myAvatarPreview'),
+        avatarInput: document.getElementById('avatarInput'),
+        friendsList: document.getElementById('friendsList'),
+        chatHeader: document.getElementById('chatHeader'),
+        messagesDiv: document.getElementById('messages'),
+        messageInput: document.getElementById('messageInput'),
+        sendBtn: document.getElementById('sendBtn'),
+        addFriendBtn: document.getElementById('addFriendBtn'),
+        newFriendId: document.getElementById('newFriendId'),
+        newFriendName: document.getElementById('newFriendName'),
+        profileTab: document.getElementById('profileTab'),
+        friendsTab: document.getElementById('friendsTab'),
+        chatTab: document.getElementById('chatTab'),
+        copyIdBtn: document.getElementById('copyIdBtn'),
+        clearChatBtn: document.getElementById('clearChatBtn'),
+        profileTabBtn: document.getElementById('profileTabBtn'),
+        friendsTabBtn: document.getElementById('friendsTabBtn')
+      };
+
+      // Заполняем данные
       elements.myId.textContent = myId;
       elements.myNameInput.value = myName;
       if (myAvatar) elements.myAvatarPreview.src = myAvatar;
 
       renderFriends();
-      switchTab('friends');
 
-      // События
+      // Переключение табов (теперь работает в ВСЕХ браузерах)
+      elements.profileTabBtn.addEventListener('click', () => switchTab('profile'));
+      elements.friendsTabBtn.addEventListener('click', () => switchTab('friends'));
+
+      // События профиля
       elements.myNameInput.addEventListener('change', saveMyProfile);
       elements.avatarInput.addEventListener('change', handleAvatarUpload);
-      elements.copyIdBtn.addEventListener('click', () => {
-        navigator.clipboard.writeText(myId);
-        alert('ID скопирован в буфер!');
-      });
+      elements.copyIdBtn.addEventListener('click', copyMyId);
       elements.clearChatBtn.addEventListener('click', clearCurrentChat);
+
+      // Кнопка добавления друга
+      elements.addFriendBtn.addEventListener('click', addNewFriend);
+
+      // Начальное состояние
+      switchTab('friends');
+    }
+
+    function switchTab(tab) {
+      // Исправлено: переключаем ТОЛЬКО левую панель (профиль / друзья)
+      // Правая панель чата теперь НЕ скрывается!
+      elements.profileTab.classList.add('hidden');
+      elements.friendsTab.classList.add('hidden');
+
+      if (tab === 'profile') {
+        elements.profileTab.classList.remove('hidden');
+        elements.profileTabBtn.classList.add('active');
+        elements.friendsTabBtn.classList.remove('active');
+      } else if (tab === 'friends') {
+        elements.friendsTab.classList.remove('hidden');
+        elements.friendsTabBtn.classList.add('active');
+        elements.profileTabBtn.classList.remove('active');
+      }
     }
 
     function saveMyProfile() {
@@ -81,9 +111,12 @@
       reader.readAsDataURL(file);
     }
 
-    function switchTab(tab) {
-      document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
-      document.getElementById(tab + 'Tab').classList.remove('hidden');
+    function copyMyId() {
+      navigator.clipboard.writeText(myId).then(() => {
+        const origText = elements.copyIdBtn.textContent;
+        elements.copyIdBtn.textContent = '✓ Скопировано!';
+        setTimeout(() => { elements.copyIdBtn.textContent = origText; }, 2000);
+      });
     }
 
     // ==================== ДРУЗЬЯ ====================
@@ -94,30 +127,42 @@
         const div = document.createElement('div');
         div.className = `friend-item ${currentChatId === friend.id ? 'active' : ''}`;
         div.innerHTML = `
-          <div style="display:flex; align-items:center; gap:10px;">
-            <div style="width:40px; height:40px; border-radius:50%; background:#333; overflow:hidden;">
+          <div style="display:flex; align-items:center; gap:10px; position:relative;">
+            <div style="width:40px; height:40px; border-radius:50%; background:#333; overflow:hidden; flex-shrink:0;">
               ${friend.avatar ? `<img src="${friend.avatar}" style="width:100%; height:100%; object-fit:cover;">` : ''}
             </div>
-            <div>
+            <div style="flex:1;">
               <strong>${friend.name}</strong>
               <div style="font-size:0.8em; color:${isOnline ? '#4ade80' : '#888'};">
                 ${isOnline ? '● онлайн' : 'оффлайн'}
               </div>
-              <small>ID: ${friend.id}</small>
+              <small style="word-break:break-all;">ID: ${friend.id}</small>
             </div>
+            <span onclick="deleteFriend('${friend.id}'); event.stopImmediatePropagation();" 
+                  style="position:absolute; top:8px; right:12px; color:#f66; font-size:1.4em; cursor:pointer; line-height:1;">×</span>
           </div>
         `;
-        div.onclick = () => openChat(friend.id, friend.name, friend.avatar);
+        div.onclick = (e) => {
+          if (e.target.tagName !== 'SPAN') openChat(friend.id, friend.name, friend.avatar);
+        };
         elements.friendsList.appendChild(div);
       });
+
+      if (friends.length === 0) {
+        elements.friendsList.innerHTML = `<p style="opacity:0.6; text-align:center; padding:20px;">Пока нет друзей.<br>Добавьте первого!</p>`;
+      }
     }
 
-    elements.addFriendBtn.addEventListener('click', () => {
+    function addNewFriend() {
       const id = elements.newFriendId.value.trim();
       const name = elements.newFriendName.value.trim() || 'Друг';
 
-      if (!id || friends.some(f => f.id === id)) {
-        alert('ID не указан или друг уже добавлен');
+      if (!id) {
+        alert('Введите ID друга');
+        return;
+      }
+      if (friends.some(f => f.id === id)) {
+        alert('Этот друг уже добавлен');
         return;
       }
 
@@ -126,7 +171,25 @@
       renderFriends();
       elements.newFriendId.value = '';
       elements.newFriendName.value = '';
-    });
+    }
+
+    window.deleteFriend = function (friendId) {
+      if (!confirm('Удалить друга из списка?')) return;
+
+      friends = friends.filter(f => f.id !== friendId);
+      localStorage.setItem('friends', JSON.stringify(friends));
+
+      // Если удаляем открытый чат — закрываем его
+      if (currentChatId === friendId) {
+        if (currentRoom) currentRoom.leave();
+        currentRoom = null;
+        currentChatId = null;
+        elements.chatHeader.textContent = 'Выберите друга для начала чата';
+        elements.messagesDiv.innerHTML = '';
+      }
+
+      renderFriends();
+    };
 
     // ==================== ЧАТ ====================
     async function openChat(friendId, friendName, friendAvatar = '') {
@@ -145,12 +208,12 @@
       `;
 
       elements.messagesDiv.innerHTML = '';
-      renderFriends();
+      renderFriends(); // обновляем список (активный друг)
 
       const roomId = 'chat_' + [myId, friendId].sort().join('_');
       currentRoom = joinRoom({ appId }, roomId);
 
-      // События онлайн-статуса
+      // Онлайн-статус
       currentRoom.onPeerJoin(peerId => {
         if (peerId === friendId) {
           onlinePeers.add(friendId);
@@ -178,8 +241,6 @@
           addMessage(msg.text, msg.fromMe, msg.time, msg.avatar);
         });
       }
-
-      switchTab('chat');
     }
 
     function addMessage(text, fromMe, time = Date.now(), avatar = '') {
@@ -195,7 +256,7 @@
       elements.messagesDiv.appendChild(div);
       elements.messagesDiv.scrollTop = elements.messagesDiv.scrollHeight;
 
-      // Сохраняем в историю
+      // Сохраняем историю
       if (!chats[currentChatId]) chats[currentChatId] = [];
       chats[currentChatId].push({ text, fromMe, time, avatar: fromMe ? myAvatar : avatar });
       localStorage.setItem('chats', JSON.stringify(chats));
@@ -213,13 +274,8 @@
       elements.messageInput.value = '';
     }
 
-    elements.sendBtn.addEventListener('click', sendCurrentMessage);
-    elements.messageInput.addEventListener('keypress', e => {
-      if (e.key === 'Enter') sendCurrentMessage();
-    });
-
     function clearCurrentChat() {
-      if (!currentChatId || !confirm('Очистить историю этого чата?')) return;
+      if (!currentChatId || !confirm('Очистить всю историю этого чата?')) return;
       delete chats[currentChatId];
       localStorage.setItem('chats', JSON.stringify(chats));
       elements.messagesDiv.innerHTML = '';
@@ -236,7 +292,7 @@
       .header { padding:16px; background:#1a1a1a; border-bottom:1px solid #222; font-weight:600; }
       .tab-content { flex:1; overflow:auto; padding:16px; }
       .hidden { display:none !important; }
-      .friend-item { padding:12px; margin:6px 0; background:#1f1f1f; border-radius:12px; cursor:pointer; transition:0.2s; }
+      .friend-item { padding:12px; margin:6px 0; background:#1f1f1f; border-radius:12px; cursor:pointer; transition:0.2s; position:relative; }
       .friend-item:hover, .friend-item.active { background:#2a2a2a; }
       .messages { flex:1; overflow-y:auto; padding:20px; display:flex; flex-direction:column; gap:12px; background:#0a0a0a; }
       .message { max-width:80%; display:flex; gap:10px; }
@@ -255,9 +311,11 @@
       .tab-btn.active { background:var(--accent); color:white; }
       small { opacity:0.7; font-size:0.75em; }
       #myAvatarPreview { width:80px; height:80px; border-radius:50%; object-fit:cover; border:3px solid #333; }
+      .delete-btn { color:#f66; }
     `;
     document.head.appendChild(style);
 
+    // ==================== ЗАПУСК ====================
     window.onload = init;
   </script>
 </head>
@@ -270,20 +328,20 @@
       </div>
 
       <div class="tabs">
-        <button class="tab-btn" onclick="switchTab('profile')">Профиль</button>
-        <button class="tab-btn active" onclick="switchTab('friends')">Друзья</button>
+        <button id="profileTabBtn" class="tab-btn">Профиль</button>
+        <button id="friendsTabBtn" class="tab-btn active">Друзья</button>
       </div>
 
       <!-- Профиль -->
-      <div id="profileTab" class="tab-content">
+      <div id="profileTab" class="tab-content hidden">
         <div style="text-align:center; margin-bottom:20px;">
           <img id="myAvatarPreview" src="" alt="Аватар">
-          <input type="file" id="avatarInput" accept="image/*" style="margin-top:10px;">
+          <input type="file" id="avatarInput" accept="image/*" style="margin-top:10px; display:block; margin-left:auto; margin-right:auto;">
         </div>
         <label>Моё имя</label>
         <input type="text" id="myName" placeholder="Имя">
-        <p><strong>Мой ID:</strong> <span id="myId" style="font-family:monospace; word-break:break-all; user-select:all;"></span></p>
-        <button id="copyIdBtn">Копировать ID</button>
+        <p><strong>Мой ID:</strong> <span id="myId" style="font-family:monospace; word-break:break-all; user-select:all; display:block; margin:8px 0;"></span></p>
+        <button id="copyIdBtn" style="width:100%;">Копировать ID</button>
         <p style="font-size:0.85em; opacity:0.8; margin-top:20px;">Поделись своим ID с друзьями, чтобы они могли тебя добавить.</p>
       </div>
 
@@ -295,7 +353,7 @@
         <h4 style="margin-top:30px;">Добавить друга</h4>
         <input type="text" id="newFriendId" placeholder="ID друга">
         <input type="text" id="newFriendName" placeholder="Имя (необязательно)">
-        <button id="addFriendBtn">Добавить в список</button>
+        <button id="addFriendBtn" style="width:100%;">Добавить в список</button>
       </div>
     </div>
 
