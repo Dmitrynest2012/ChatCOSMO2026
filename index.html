@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>P2P Мессенджер</title>
+  <script type="module">
+    import { joinRoom } from 'https://esm.run/trystero';
+    
+    // ==================== ДАННЫЕ ====================
+    let myId = localStorage.getItem('myPeerId');
+    if (!myId) {
+      myId = 'user_' + crypto.randomUUID().slice(0, 8);
+      localStorage.setItem('myPeerId', myId);
+    }
+
+    let myName = localStorage.getItem('myName') || 'Я';
+    let friends = JSON.parse(localStorage.getItem('friends') || '[]');
+    let currentChatId = null; // ID друга, с которым сейчас чат
+    let currentRoom = null;
+    let messages = {}; // { friendId: [{text, fromMe, time}] }
+
+    const appId = 'p2p-messenger-2026'; // Меняй на своё уникальное имя
+
+    // ==================== DOM ЭЛЕМЕНТЫ ====================
+    const myIdEl = document.getElementById('myId');
+    const myNameInput = document.getElementById('myName');
+    const friendsList = document.getElementById('friendsList');
+    const chatHeader = document.getElementById('chatHeader');
+    const messagesDiv = document.getElementById('messages');
+    const messageInput = document.getElementById('messageInput');
+    const sendBtn = document.getElementById('sendBtn');
+    const addFriendBtn = document.getElementById('addFriendBtn');
+    const newFriendId = document.getElementById('newFriendId');
+    const newFriendName = document.getElementById('newFriendName');
+    const profileTab = document.getElementById('profileTab');
+    const friendsTab = document.getElementById('friendsTab');
+    const chatTab = document.getElementById('chatTab');
+
+    // ==================== ИНИЦИАЛИЗАЦИЯ ====================
+    function init() {
+      myIdEl.textContent = myId;
+      myNameInput.value = myName;
+
+      renderFriends();
+      switchTab('friends');
+
+      // Сохраняем имя
+      myNameInput.addEventListener('change', () => {
+        myName = myNameInput.value.trim() || 'Я';
+        localStorage.setItem('myName', myName);
+      });
+    }
+
+    // ==================== ТАБЫ ====================
+    function switchTab(tab) {
+      document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+      document.getElementById(tab + 'Tab').classList.remove('hidden');
+    }
+
+    // ==================== СПИСОК ДРУЗЕЙ ====================
+    function renderFriends() {
+      friendsList.innerHTML = '';
+      friends.forEach(friend => {
+        const div = document.createElement('div');
+        div.className = `friend-item ${currentChatId === friend.id ? 'active' : ''}`;
+        div.innerHTML = `
+          <strong>${friend.name}</strong><br>
+          <small>ID: ${friend.id}</small>
+        `;
+        div.onclick = () => openChat(friend.id, friend.name);
+        friendsList.appendChild(div);
+      });
+    }
+
+    addFriendBtn.addEventListener('click', () => {
+      const id = newFriendId.value.trim();
+      const name = newFriendName.value.trim() || 'Друг';
+
+      if (!id || friends.some(f => f.id === id)) {
+        alert('Неверный ID или друг уже добавлен');
+        return;
+      }
+
+      friends.push({ id, name });
+      localStorage.setItem('friends', JSON.stringify(friends));
+      renderFriends();
+      newFriendId.value = '';
+      newFriendName.value = '';
+    });
+
+    // ==================== ОТКРЫТИЕ ЧАТА ====================
+    async function openChat(friendId, friendName) {
+      if (currentChatId === friendId) return;
+
+      // Закрываем предыдущую комнату
+      if (currentRoom) currentRoom.leave?.();
+
+      currentChatId = friendId;
+      chatHeader.textContent = `Чат с ${friendName}`;
+      messagesDiv.innerHTML = '';
+
+      renderFriends(); // обновить активный
+
+      // Создаём приватную комнату (сортируем ID, чтобы комната была одинаковой у обоих)
+      const roomId = 'chat_' + [myId, friendId].sort().join('_');
+      
+      const config = { appId };
+      currentRoom = joinRoom(config, roomId);
+
+      // Действие для сообщений
+      const [sendMessage, getMessage] = currentRoom.makeAction('msg');
+
+      // Получаем сообщения
+      getMessage((data, peerId) => {
+        if (peerId === myId) return; // игнорируем свои
+        addMessageToUI(data.text, false, data.time);
+      });
+
+      // Загружаем сохранённые сообщения
+      if (messages[friendId]) {
+        messages[friendId].forEach(msg => {
+          addMessageToUI(msg.text, msg.fromMe, msg.time);
+        });
+      }
+
+      switchTab('chat');
+    }
+
+    function addMessageToUI(text, fromMe, time = Date.now()) {
+      const div = document.createElement('div');
+      div.className = `message ${fromMe ? 'my-message' : 'friend-message'}`;
+      div.innerHTML = `
+        <div>${text}</div>
+        <small>${new Date(time).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</small>
+      `;
+      messagesDiv.appendChild(div);
+      messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    }
+
+    // ==================== ОТПРАВКА СООБЩЕНИЯ ====================
+    sendBtn.addEventListener('click', sendCurrentMessage);
+    messageInput.addEventListener('keypress', e => {
+      if (e.key === 'Enter') sendCurrentMessage();
+    });
+
+    function sendCurrentMessage() {
+      const text = messageInput.value.trim();
+      if (!text || !currentChatId || !currentRoom) return;
+
+      const time = Date.now();
+      const [sendMessage] = currentRoom.makeAction('msg');
+      sendMessage({ text, time });
+
+      // Добавляем себе
+      addMessageToUI(text, true, time);
+
+      // Сохраняем локально
+      if (!messages[currentChatId]) messages[currentChatId] = [];
+      messages[currentChatId].push({ text, fromMe: true, time });
+
+      messageInput.value = '';
+    }
+
+    // ==================== CSS ====================
+    const style = document.createElement('style');
+    style.textContent = `
+      body { font-family: system-ui, sans-serif; margin:0; background:#0f0f0f; color:#ddd; }
+      .container { display:flex; height:100vh; }
+      .sidebar { width:280px; background:#1a1a1a; border-right:1px solid #333; display:flex; flex-direction:column; }
+      .main { flex:1; display:flex; flex-direction:column; }
+      .header { padding:15px; background:#222; border-bottom:1px solid #333; }
+      .tab-content { flex:1; overflow:auto; padding:15px; }
+      .hidden { display:none !important; }
+      .friend-item { padding:12px; margin:4px 0; background:#222; border-radius:8px; cursor:pointer; }
+      .friend-item:hover, .friend-item.active { background:#333; }
+      .messages { flex:1; overflow-y:auto; padding:15px; display:flex; flex-direction:column; gap:10px; }
+      .message { max-width:75%; padding:10px 14px; border-radius:18px; }
+      .my-message { align-self:flex-end; background:#0a84ff; color:white; border-bottom-right-radius:4px; }
+      .friend-message { align-self:flex-start; background:#333; border-bottom-left-radius:4px; }
+      input, button { padding:10px; margin:5px 0; border-radius:6px; border:none; }
+      button { background:#0a84ff; color:white; cursor:pointer; }
+      button:hover { background:#0066cc; }
+      .input-area { padding:10px; background:#1a1a1a; border-top:1px solid #333; }
+      .tabs { display:flex; background:#222; }
+      .tab-btn { flex:1; padding:12px; background:none; border:none; color:#ddd; cursor:pointer; }
+      .tab-btn.active { background:#0a84ff; color:white; }
+    `;
+    document.head.appendChild(style);
+
+    // ==================== ЗАПУСК ====================
+    window.onload = init;
+  </script>
+</head>
+<body>
+  <div class="container">
+    <!-- Сайдбар -->
+    <div class="sidebar">
+      <div class="header">
+        <h2>P2P Мессенджер</h2>
+        <p>Мой ID: <span id="myId" style="font-family:monospace; word-break:break-all;"></span></p>
+      </div>
+
+      <div class="tabs">
+        <button class="tab-btn" onclick="switchTab('profile')">Профиль</button>
+        <button class="tab-btn active" onclick="switchTab('friends')">Друзья</button>
+      </div>
+
+      <!-- Профиль -->
+      <div id="profileTab" class="tab-content">
+        <label>Моё имя:</label>
+        <input type="text" id="myName" placeholder="Твоё имя">
+        <p><strong>Поделись своим ID с друзьями</strong></p>
+      </div>
+
+      <!-- Список друзей -->
+      <div id="friendsTab" class="tab-content">
+        <h3>Друзья</h3>
+        <div id="friendsList"></div>
+
+        <h4>Добавить друга</h4>
+        <input type="text" id="newFriendId" placeholder="ID друга">
+        <input type="text" id="newFriendName" placeholder="Имя друга (опционально)">
+        <button id="addFriendBtn">Добавить</button>
+      </div>
+    </div>
+
+    <!-- Основная область чата -->
+    <div class="main">
+      <div class="header" id="chatHeader">Выберите друга для начала чата</div>
+      
+      <div id="chatTab" class="tab-content">
+        <div id="messages" class="messages"></div>
+        
+        <div class="input-area">
+          <input type="text" id="messageInput" placeholder="Напишите сообщение..." style="width:75%;">
+          <button id="sendBtn">Отправить</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
